@@ -24,17 +24,26 @@ async fn handle_user(mut tcp: TcpStream, tx: Sender<String>) -> anyhow::Result<(
 
     sink.send(HELP_MSG).await?;
 
-    while let Some(Ok(mut user_msg)) = stream.next().await {
-        if user_msg.starts_with("/help") {
-            sink.send(HELP_MSG).await?;
-        } else if user_msg.starts_with("/quit") {
-            break;
-        } else {
-            user_msg.push_str(" ❤️");
-            tx.send(user_msg)?;
+    loop {
+        tokio::select! {
+            user_msg = stream.next() => {
+                let mut user_msg = match user_msg {
+                    Some(msg) => msg?,
+                    None => break,
+                };
+                if user_msg.starts_with("/help") {
+                    sink.send(HELP_MSG).await?;
+                } else if user_msg.starts_with("/quit") {
+                    break;
+                } else {
+                    user_msg.push_str(" ❤️");
+                    let _ = tx.send(user_msg);
+                }
+            },
+            peer_msg = rx.recv() => {
+                sink.send(peer_msg?).await?;
+            },
         }
-        let peer_msg = rx.recv().await?;
-        sink.send(peer_msg).await?;
     }
     Ok(())
 }
